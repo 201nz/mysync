@@ -1,0 +1,21 @@
+[package]
+name = "mysync"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# gzip-decompress dump files
+flate2 = "1"
+# MySQL/MariaDB wire protocol client (sync API, matches the current
+# per-table processing model; threads instead of async for parallel tables)
+mysql = "26"
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+# fast byte scanning for the statement splitter / tokenizer
+memchr = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[workspace]
