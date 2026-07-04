@@ -61,12 +61,83 @@ shift.
 
 ## Installing / building
 
-Requires a Rust toolchain (`rustup` is the easiest way to get one).
+New to Rust? Building this is two steps: install the Rust toolchain, then
+run one command. The steps below assume no prior Rust setup.
+
+### 1. Install Rust
+
+Rust is installed via `rustup`, the official installer/version manager
+(this also gives you `cargo`, the build tool used below).
+
+- **macOS / Linux**: open a terminal and run:
+
+  ```
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+
+  Accept the default options. Then close and reopen your terminal (or run
+  `source "$HOME/.cargo/env"`) so `cargo` is on your `PATH`.
+
+- **Windows**: download and run
+  [rustup-init.exe](https://win.rustup.rs) and accept the default options.
+  If it reports that the "MSVC linker" / C++ Build Tools are missing,
+  follow the link it gives you to install "Build Tools for Visual Studio"
+  with the **Desktop development with C++** workload, then re-run
+  `rustup-init.exe` (this is a one-time OS-level requirement for compiling
+  *any* Rust project on Windows, not specific to this one).
+
+Verify it worked in a **new** terminal window:
+
+```
+rustc --version
+cargo --version
+```
+
+### 2. Install a C compiler + zlib (one-time, OS package manager)
+
+This project itself is pure Rust, but one dependency (dump decompression)
+links against the system `zlib` compression library, which means a C
+compiler is needed at build time to link it. Rust doesn't install this for
+you — it comes from your OS's usual toolchain:
+
+- **Debian / Ubuntu**:
+  ```
+  sudo apt install build-essential pkg-config zlib1g-dev
+  ```
+- **Fedora / RHEL**:
+  ```
+  sudo dnf install gcc pkgconf-pkg-config zlib-devel
+  ```
+- **Arch**:
+  ```
+  sudo pacman -S base-devel zlib
+  ```
+- **macOS**: install the Xcode Command Line Tools (provides both the C
+  compiler and zlib — no Homebrew needed):
+  ```
+  xcode-select --install
+  ```
+- **Windows**: nothing further — the MSVC Build Tools installed in step 1
+  are enough; `cargo build` will compile zlib from source automatically.
+
+### 3. Build
+
+From the project directory, on any OS:
 
 ```
 cargo build --release
-# binary at target/release/mysync
 ```
+
+The first build compiles all dependencies too, so expect it to take a
+couple of minutes; later builds are much faster. The resulting binary is
+at:
+
+- macOS / Linux: `target/release/mysync`
+- Windows: `target\release\mysync.exe`
+
+Run it directly from there (e.g. `./target/release/mysync ...` on
+macOS/Linux, `target\release\mysync.exe ...` on Windows/PowerShell), or
+copy it somewhere on your `PATH`.
 
 ## Usage
 
