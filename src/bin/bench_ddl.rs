@@ -2,6 +2,8 @@ use std::io::Read;
 
 #[path = "../sqlstream.rs"]
 mod sqlstream;
+#[path = "../values.rs"]
+mod values;
 #[path = "../ddl.rs"]
 mod ddl;
 

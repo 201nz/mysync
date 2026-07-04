@@ -134,9 +134,25 @@ fn unescape_char(c: u8) -> u8 {
 }
 
 pub fn parse_value_token(raw: &[u8]) -> RawValue<'_> {
+    parse_value_token_typed(raw, None)
+}
+
+/// Same as `parse_value_token`, but when `bit_width` is `Some(n)` (the
+/// token belongs to a `BIT(n)` column) also recognizes MySQL's bit-literal
+/// syntax (`b'1010'` / `B'1010'`), decoding it into the same big-endian,
+/// `ceil(n/8)`-byte representation a text-protocol `SELECT` of that column
+/// would return. Without this, a bit literal falls through to the
+/// catch-all branch below and gets stored as its literal source text
+/// (e.g. the 7 bytes `b'1010'`) instead of the actual bit value.
+pub fn parse_value_token_typed(raw: &[u8], bit_width: Option<u32>) -> RawValue<'_> {
     let raw = raw.trim_ascii();
     if raw.eq_ignore_ascii_case(b"NULL") {
         return RawValue::Null;
+    }
+    if let Some(width) = bit_width {
+        if let Some(bits) = strip_bit_literal(raw) {
+            return RawValue::Bytes(Cow::Owned(encode_bit_value(bits, width)));
+        }
     }
     match raw.first() {
         Some(b'\'') => RawValue::Bytes(unescape_span(&raw[1..raw.len() - 1], b'\'')),
@@ -155,6 +171,33 @@ pub fn parse_value_token(raw: &[u8]) -> RawValue<'_> {
         }
         _ => RawValue::Bytes(Cow::Borrowed(raw)),
     }
+}
+
+/// Recognizes `b'...'` / `B'...'` (MySQL bit-literal syntax) and returns
+/// the span of `0`/`1` characters between the quotes.
+fn strip_bit_literal(raw: &[u8]) -> Option<&[u8]> {
+    if raw.len() < 3 || (raw[0] != b'b' && raw[0] != b'B') || raw[1] != b'\'' {
+        return None;
+    }
+    raw.strip_prefix(b"b'")
+        .or_else(|| raw.strip_prefix(b"B'"))
+        .and_then(|rest| rest.strip_suffix(b"'"))
+}
+
+/// Encodes the value of a bit-literal (`bits`: ascii `0`/`1` characters,
+/// MSB first) the way MySQL returns a `BIT(width)` column over the text
+/// protocol: big-endian, `ceil(width/8)` bytes, zero-padded on the left.
+fn encode_bit_value(bits: &[u8], width: u32) -> Vec<u8> {
+    let mut value: u64 = 0;
+    for &b in bits {
+        value = (value << 1) | u64::from(b == b'1');
+    }
+    let nbytes = (width as usize).div_ceil(8).max(1);
+    let mut out = vec![0u8; nbytes];
+    for (i, byte) in out.iter_mut().rev().enumerate() {
+        *byte = (value >> (i * 8)) as u8;
+    }
+    out
 }
 
 fn hex_decode(hex: &[u8]) -> Vec<u8> {
@@ -228,6 +271,35 @@ mod tests {
     fn bare_number_is_untouched_text() {
         match parse_value_token(b"-36.848461") {
             RawValue::Bytes(Cow::Borrowed(b)) => assert_eq!(b, b"-36.848461"),
+            other => panic!("expected a borrowed span, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bit_literal_decodes_to_binary_value_not_source_text() {
+        // BIT(4) column storing b'1010' (10) should come back over the
+        // text protocol as the single byte 0x0A, not the literal text.
+        match parse_value_token_typed(b"b'1010'", Some(4)) {
+            RawValue::Bytes(b) => assert_eq!(&*b, &[0x0Au8][..]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn bit_literal_uppercase_prefix_and_wider_column() {
+        // BIT(16) storing 0b1010 (10) pads to 2 bytes: 0x00 0x0A.
+        match parse_value_token_typed(b"B'1010'", Some(16)) {
+            RawValue::Bytes(b) => assert_eq!(&*b, &[0x00u8, 0x0A][..]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn bit_literal_without_bit_width_hint_falls_back_to_source_text() {
+        // no column-type context (bit_width: None): can't safely special-
+        // case this, so it's treated like any other non-quoted token.
+        match parse_value_token(b"b'1010'") {
+            RawValue::Bytes(Cow::Borrowed(b)) => assert_eq!(b, b"b'1010'"),
             other => panic!("expected a borrowed span, got {other:?}"),
         }
     }

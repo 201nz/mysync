@@ -47,22 +47,24 @@ impl<'a> InsertStmt<'a> {
 /// the original).
 fn parse_insert_header(stmt: &[u8]) -> (&str, Option<Vec<&str>>, usize, &[u8]) {
     let stmt = sqlstream::strip_leading_comments(stmt);
-    // tolerate "INSERT IGNORE INTO" too
-    let after_insert = if stmt[..7.min(stmt.len())].eq_ignore_ascii_case(b"INSERT ") {
+    // tolerate "INSERT INTO", "INSERT IGNORE INTO", and "REPLACE INTO"
+    // (mysqldump emits REPLACE INTO for row data when run with --replace)
+    let after_kw = if stmt[..7.min(stmt.len())].eq_ignore_ascii_case(b"INSERT ") {
         &stmt[7..]
+    } else if stmt[..8.min(stmt.len())].eq_ignore_ascii_case(b"REPLACE ") {
+        &stmt[8..]
     } else {
         stmt
     };
-    let after_into = if after_insert[..7.min(after_insert.len())].eq_ignore_ascii_case(b"IGNORE ")
-    {
-        &after_insert[7..]
+    let after_into = if after_kw[..7.min(after_kw.len())].eq_ignore_ascii_case(b"IGNORE ") {
+        &after_kw[7..]
     } else {
-        after_insert
+        after_kw
     };
     let after_into = after_into.trim_ascii_start();
     assert!(
         after_into[..5.min(after_into.len())].eq_ignore_ascii_case(b"INTO "),
-        "not an INSERT statement: {:?}",
+        "not an INSERT/REPLACE statement: {:?}",
         &stmt[..stmt.len().min(80)]
     );
     let rest = after_into[5..].trim_ascii_start();
@@ -122,7 +124,7 @@ pub fn parse_dump(data: &[u8]) -> ParsedDump<'_> {
                 inserts.entry(schema.name.clone()).or_default();
                 schemas.insert(schema.name.clone(), schema);
             }
-            "INSERT" => {
+            "INSERT" | "REPLACE" => {
                 let (table_name, explicit_columns, values_start, stripped) =
                     parse_insert_header(stmt);
                 inserts
@@ -143,5 +145,30 @@ pub fn parse_dump(data: &[u8]) -> ParsedDump<'_> {
         table_order,
         schemas,
         inserts,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replace_into_rows_are_parsed_like_insert() {
+        let data = b"CREATE TABLE `t` (`id` int NOT NULL, `v` int, PRIMARY KEY (`id`)) ENGINE=InnoDB;\n\
+                     REPLACE INTO `t` VALUES (1,10),(2,20);\n";
+        let dump = parse_dump(data);
+        let stmts = &dump.inserts["t"];
+        assert_eq!(stmts.len(), 1);
+        let rows: Vec<&[u8]> = stmts[0].rows().collect();
+        assert_eq!(rows, vec![&b"1,10"[..], &b"2,20"[..]]);
+    }
+
+    #[test]
+    fn replace_into_with_explicit_columns() {
+        let data = b"CREATE TABLE `t` (`id` int NOT NULL, `v` int, PRIMARY KEY (`id`)) ENGINE=InnoDB;\n\
+                     REPLACE INTO `t` (`id`, `v`) VALUES (1,10);\n";
+        let dump = parse_dump(data);
+        let stmts = &dump.inserts["t"];
+        assert_eq!(stmts[0].explicit_columns, Some(vec!["id", "v"]));
     }
 }

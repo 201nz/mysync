@@ -56,7 +56,7 @@ fn find_nearest(data: &[u8], from: usize, groups: &[&[u8]]) -> Option<usize> {
 /// Handles `\`-escaping (not recognized inside backtick identifiers,
 /// matching MySQL) and doubled-quote-of-the-same-kind escaping (`''`,
 /// `""`, `` `` ``).
-fn skip_quoted(data: &[u8], pos: usize) -> usize {
+pub(crate) fn skip_quoted(data: &[u8], pos: usize) -> usize {
     let quote = data[pos];
     let len = data.len();
     let mut i = pos + 1;

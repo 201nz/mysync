@@ -143,22 +143,47 @@ fn iter_dump_rows<'a>(
 ) -> impl Iterator<Item = Vec<Cell>> + 'a {
     let natural_names = schema.column_names();
     insert_stmts.iter().flat_map(move |stmt| {
+        // `reorder[i]` is the token position (in this statement's row
+        // tuples) holding natural column `i`'s value, or `None` if that
+        // column was left out of an explicit column list — e.g.
+        // `INSERT INTO t (a,b) VALUES ...` on a table with columns
+        // `(a,b,c)` misses `c`.
         let reorder: Option<Vec<Option<usize>>> = stmt.explicit_columns.as_ref().map(|cols| {
             let pos: HashMap<&str, usize> =
                 cols.iter().enumerate().map(|(i, &c)| (c, i)).collect();
             natural_names.iter().map(|n| pos.get(n).copied()).collect()
         });
+        // Bit width per *token position* (not per natural column), so a
+        // token can be decoded as a bit-literal without first reordering.
+        let token_bit_widths: Vec<Option<u32>> = match &stmt.explicit_columns {
+            Some(cols) => cols
+                .iter()
+                .map(|c| {
+                    schema
+                        .columns
+                        .iter()
+                        .find(|col| col.name == *c)
+                        .and_then(|col| col.bit_width)
+                })
+                .collect(),
+            None => schema.columns.iter().map(|col| col.bit_width).collect(),
+        };
         stmt.rows().map(move |row_bytes| {
             let tokens = sqlstream::split_toplevel(row_bytes, b',');
             let cells: Vec<Cell> = tokens
                 .into_iter()
-                .map(|t| values::parse_value_token(t).into_cell())
+                .zip(token_bit_widths.iter().copied().chain(std::iter::repeat(None)))
+                .map(|(t, bit_width)| values::parse_value_token_typed(t, bit_width).into_cell())
                 .collect();
             match &reorder {
                 None => cells,
                 Some(map) => map
                     .iter()
-                    .map(|pos| pos.and_then(|i| cells.get(i).cloned()).unwrap_or(None))
+                    .enumerate()
+                    .map(|(col_idx, pos)| match pos {
+                        Some(i) => cells.get(*i).cloned().unwrap_or(None),
+                        None => schema.columns[col_idx].default.resolve(),
+                    })
                     .collect(),
             }
         })
@@ -487,4 +512,66 @@ pub fn apply_table_plan<Q: Queryable>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dumpfile;
+
+    #[test]
+    fn explicit_column_list_fills_omitted_column_with_its_default() {
+        // dump row omits `status`; a real `INSERT INTO t (id) VALUES (1)`
+        // would apply the column's DEFAULT '1', not NULL.
+        let data = b"CREATE TABLE `t` (\n\
+            `id` int NOT NULL,\n\
+            `status` int NOT NULL DEFAULT '1',\n\
+            PRIMARY KEY (`id`)\n\
+        ) ENGINE=InnoDB;\n\
+        INSERT INTO `t` (`id`) VALUES (1),(2);\n";
+        let dump = dumpfile::parse_dump(data);
+        let schema = &dump.schemas["t"];
+        let TablePlan::New { rows } = compute_new_table_plan(schema, &dump.inserts["t"]) else {
+            panic!("expected TablePlan::New");
+        };
+        assert_eq!(
+            rows,
+            vec![
+                vec![Some(b"1".to_vec()), Some(b"1".to_vec())],
+                vec![Some(b"2".to_vec()), Some(b"1".to_vec())],
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_column_list_omitted_column_without_default_is_still_null() {
+        let data = b"CREATE TABLE `t` (\n\
+            `id` int NOT NULL,\n\
+            `note` varchar(10) DEFAULT NULL,\n\
+            PRIMARY KEY (`id`)\n\
+        ) ENGINE=InnoDB;\n\
+        INSERT INTO `t` (`id`) VALUES (1);\n";
+        let dump = dumpfile::parse_dump(data);
+        let schema = &dump.schemas["t"];
+        let TablePlan::New { rows } = compute_new_table_plan(schema, &dump.inserts["t"]) else {
+            panic!("expected TablePlan::New");
+        };
+        assert_eq!(rows, vec![vec![Some(b"1".to_vec()), None]]);
+    }
+
+    #[test]
+    fn bit_literal_row_value_decodes_correctly_through_full_pipeline() {
+        let data = b"CREATE TABLE `t` (\n\
+            `id` int NOT NULL,\n\
+            `flags` bit(4) NOT NULL,\n\
+            PRIMARY KEY (`id`)\n\
+        ) ENGINE=InnoDB;\n\
+        INSERT INTO `t` VALUES (1,b'1010');\n";
+        let dump = dumpfile::parse_dump(data);
+        let schema = &dump.schemas["t"];
+        let TablePlan::New { rows } = compute_new_table_plan(schema, &dump.inserts["t"]) else {
+            panic!("expected TablePlan::New");
+        };
+        assert_eq!(rows, vec![vec![Some(b"1".to_vec()), Some(vec![0x0A])]]);
+    }
 }

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use mysql::prelude::*;
 use mysql::{Conn, OptsBuilder};
 
-use crate::ddl::{Column, TableSchema};
+use crate::ddl::{Column, ColumnDefault, TableSchema};
 
 pub struct ConnParams {
     pub host: String,
@@ -73,6 +73,11 @@ pub fn fetch_local_tables(
                 name: col_name,
                 r#type: data_type.to_lowercase(),
                 nullable: is_nullable == "YES",
+                // Only used for dump-row parsing (bit-literal decoding,
+                // explicit-column-list defaults), which never touches this
+                // information_schema-derived local-side schema.
+                bit_width: None,
+                default: ColumnDefault::None,
             });
     }
 
