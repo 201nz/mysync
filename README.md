@@ -258,3 +258,8 @@ column type uniformly as raw bytes or `NULL`, so there's no need for a
 parallel type-coercion layer to keep in sync with the driver's own
 behavior — dump-parsed values and live-fetched values are already
 comparable byte-for-byte.
+
+## License
+
+[0BSD](LICENSE) — do whatever you want with it, no attribution required, no
+warranty provided.
