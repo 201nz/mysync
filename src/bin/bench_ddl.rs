@@ -1,3 +1,7 @@
+// This binary only exercises a slice of the modules it reuses via
+// `#[path]` below, so the rest is expected to look unused from here.
+#![allow(dead_code)]
+
 use std::io::Read;
 
 #[path = "../sqlstream.rs"]

@@ -34,6 +34,10 @@ pub enum RawValue<'a> {
 }
 
 impl<'a> RawValue<'a> {
+    /// The sync engine itself only ever needs `into_cell` (see below); this
+    /// is kept as public API for tests and `bench_values` to exercise the
+    /// same conversion the doc comment above describes.
+    #[allow(dead_code)]
     pub fn into_mysql_value(self) -> Value {
         match self {
             RawValue::Null => Value::NULL,
@@ -133,6 +137,10 @@ fn unescape_char(c: u8) -> u8 {
     }
 }
 
+/// Convenience wrapper around `parse_value_token_typed` for callers with no
+/// column-type context (tests, `bench_values`); the sync engine always has
+/// a column's schema on hand and calls `parse_value_token_typed` directly.
+#[allow(dead_code)]
 pub fn parse_value_token(raw: &[u8]) -> RawValue<'_> {
     parse_value_token_typed(raw, None)
 }
