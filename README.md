@@ -150,7 +150,7 @@ mysync <dump_file> -D <database> [options]
 | `--host` | `127.0.0.1` | MySQL/MariaDB host |
 | `--port` | `3306` | port |
 | `-u, --user` | `root` | username |
-| `-p, --password` | *(empty)* | password |
+| `-p, --password` | *(empty, or `$MYSQL_PWD`)* | password |
 | `-D, --database` | *(required)* | database to sync |
 | `--batch-size` | `1000` | rows per `INSERT`/`DELETE` statement (auto-clamped down for very wide tables to stay under MySQL's 65535-placeholder limit) |
 | `-j, --jobs` | `min(cores, 8)` | worker threads/connections for the read-only diff step |

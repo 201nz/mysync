@@ -11,7 +11,7 @@ flate2 = "1"
 # per-table processing model; threads instead of async for parallel tables)
 mysql = "26"
 # CLI argument parsing
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 # fast byte scanning for the statement splitter / tokenizer
 memchr = "2"
 

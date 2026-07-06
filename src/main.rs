@@ -47,7 +47,8 @@ struct Args {
     #[arg(short, long, default_value = "root")]
     user: String,
 
-    #[arg(short, long, default_value = "")]
+    /// Falls back to the MYSQL_PWD environment variable if not given.
+    #[arg(short, long, env = "MYSQL_PWD", default_value = "", hide_env_values = true)]
     password: String,
 
     #[arg(short = 'D', long)]
