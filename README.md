@@ -13,6 +13,18 @@ the data hasn't changed since your last sync.
 mysqldump -h prod -u root myapp | mysync myapp
 ```
 
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Performance](#performance)
+- [Installing / building](#installing--building)
+- [Usage](#usage)
+  - [Transaction modes](#transaction-modes)
+- [How it decides what "changed" means](#how-it-decides-what-changed-means)
+- [Limitations](#limitations)
+- [Design notes](#design-notes)
+- [License](#license)
+
 ## Why this exists
 
 The usual dev workflow — `mysqldump` on the server, copy the file down,
@@ -69,22 +81,31 @@ run one command. The steps below assume no prior Rust setup.
 Rust is installed via `rustup`, the official installer/version manager
 (this also gives you `cargo`, the build tool used below).
 
-- **macOS / Linux**: open a terminal and run:
+<details>
+<summary><strong>macOS / Linux</strong></summary>
 
-  ```
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
+Open a terminal and run:
 
-  Accept the default options. Then close and reopen your terminal (or run
-  `source "$HOME/.cargo/env"`) so `cargo` is on your `PATH`.
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
-- **Windows**: download and run
-  [rustup-init.exe](https://win.rustup.rs) and accept the default options.
-  If it reports that the "MSVC linker" / C++ Build Tools are missing,
-  follow the link it gives you to install "Build Tools for Visual Studio"
-  with the **Desktop development with C++** workload, then re-run
-  `rustup-init.exe` (this is a one-time OS-level requirement for compiling
-  *any* Rust project on Windows, not specific to this one).
+Accept the default options. Then close and reopen your terminal (or run
+`source "$HOME/.cargo/env"`) so `cargo` is on your `PATH`.
+
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+Download and run [rustup-init.exe](https://win.rustup.rs) and accept the
+default options. If it reports that the "MSVC linker" / C++ Build Tools
+are missing, follow the link it gives you to install "Build Tools for
+Visual Studio" with the **Desktop development with C++** workload, then
+re-run `rustup-init.exe` (this is a one-time OS-level requirement for
+compiling *any* Rust project on Windows, not specific to this one).
+
+</details>
 
 Verify it worked in a **new** terminal window:
 
@@ -100,25 +121,52 @@ links against the system `zlib` compression library, which means a C
 compiler is needed at build time to link it. Rust doesn't install this for
 you — it comes from your OS's usual toolchain:
 
-- **Debian / Ubuntu**:
-  ```
-  sudo apt install build-essential pkg-config zlib1g-dev
-  ```
-- **Fedora / RHEL**:
-  ```
-  sudo dnf install gcc pkgconf-pkg-config zlib-devel
-  ```
-- **Arch**:
-  ```
-  sudo pacman -S base-devel zlib
-  ```
-- **macOS**: install the Xcode Command Line Tools (provides both the C
-  compiler and zlib — no Homebrew needed):
-  ```
-  xcode-select --install
-  ```
-- **Windows**: nothing further — the MSVC Build Tools installed in step 1
-  are enough; `cargo build` will compile zlib from source automatically.
+<details>
+<summary><strong>Debian / Ubuntu</strong></summary>
+
+```
+sudo apt install build-essential pkg-config zlib1g-dev
+```
+
+</details>
+
+<details>
+<summary><strong>Fedora / RHEL</strong></summary>
+
+```
+sudo dnf install gcc pkgconf-pkg-config zlib-devel
+```
+
+</details>
+
+<details>
+<summary><strong>Arch</strong></summary>
+
+```
+sudo pacman -S base-devel zlib
+```
+
+</details>
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+Install the Xcode Command Line Tools (provides both the C compiler and
+zlib — no Homebrew needed):
+
+```
+xcode-select --install
+```
+
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+Nothing further — the MSVC Build Tools installed in step 1 are enough;
+`cargo build` will compile zlib from source automatically.
+
+</details>
 
 ### 3. Build
 
@@ -223,7 +271,9 @@ rather than assuming higher is better.
   `mysqldump` itself does in its dump header), since neither table
   creation order nor row-insert order here is dependency-aware.
 
-## What it doesn't do
+## Limitations
+
+### What it doesn't do
 
 - **Views, triggers, stored procedures/functions**: not supported. These
   statements are parsed just enough to be recognized and skipped — nothing
@@ -234,7 +284,7 @@ rather than assuming higher is better.
 - **Cross-database consistency**: this syncs one database against one
   dump. It doesn't know about, or coordinate with, anything else.
 
-## When *not* to use this
+### When *not* to use this
 
 A plain `mysqldump | mysql` pipe-restore is still the better choice when:
 
