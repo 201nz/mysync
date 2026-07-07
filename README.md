@@ -284,6 +284,36 @@ rather than assuming higher is better.
 - **Cross-database consistency**: this syncs one database against one
   dump. It doesn't know about, or coordinate with, anything else.
 
+### Known correctness edge cases (PK-less tables, multiple/drifted unique keys)
+
+For a table with **no primary key**, row matching falls back to "the
+first non-nullable unique key" (see above), and that same key is used to
+build an `INSERT ... ON DUPLICATE KEY UPDATE` for anything that looks
+changed. Two related edge cases can make that upsert silently do the
+wrong thing on such a table:
+
+- **A second real unique key on the same table.** MySQL detects an
+  `ON DUPLICATE KEY UPDATE` conflict against *any* unique constraint on
+  the table, not just the one mysync picked. A dump row that looks new
+  by the chosen key can still collide with an unrelated existing row via
+  a different unique key, silently merging the two into one row instead
+  of inserting the new one.
+- **A unique key that's drifted between the dump and the local copy.**
+  Schema-change detection (see "How it decides what changed means" above)
+  intentionally ignores index differences, so a table whose *unique key*
+  differs between dump and local (columns/primary key otherwise
+  unchanged) is never rebuilt — but the upsert still relies on the dump's
+  version of that key being a real, enforced constraint locally. If it
+  isn't, `ON DUPLICATE KEY UPDATE` stops detecting conflicts at all, and
+  every "changed" row gets duplicated instead of updated, on every run.
+
+Both are silent — no error is raised, no row count looks obviously wrong.
+Not yet fixed; tracked for a future release. Given a choice between
+detecting this and stopping with an error, versus adding a per-row check
+that would slow down every table (including the vast majority that don't
+have this shape), the fix will lean toward failing fast for the
+uncommon, affected case rather than paying a cost on every sync.
+
 ### When *not* to use this
 
 A plain `mysqldump | mysql` pipe-restore is still the better choice when:
