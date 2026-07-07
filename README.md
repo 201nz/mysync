@@ -13,6 +13,12 @@ the data hasn't changed since your last sync.
 mysync production.sql.gz -u root -D myapp
 ```
 
+Or pipe directly from `mysqldump` without writing a file:
+
+```
+mysqldump -h prod -u root myapp | mysync -u root -D myapp
+```
+
 ## Why this exists
 
 The usual dev workflow — `mysqldump` on the server, copy the file down,
@@ -142,7 +148,26 @@ copy it somewhere on your `PATH`.
 ## Usage
 
 ```
-mysync <dump_file> -D <database> [options]
+mysync [dump_file] -D <database> [options]
+```
+
+`dump_file` is optional. If omitted, `mysync` reads from stdin — plain SQL
+or gzip-compressed, detected automatically by magic bytes. This lets you
+pipe directly from `mysqldump` or any other source without writing an
+intermediate file:
+
+```bash
+# file on disk (plain or .gz)
+mysync production.sql.gz -D myapp
+
+# pipe from a remote server
+ssh prod "mysqldump myapp" | mysync -D myapp
+
+# pipe with compression
+ssh prod "mysqldump myapp | gzip" | mysync -D myapp
+
+# redirect
+mysync -D myapp < production.sql.gz
 ```
 
 | flag | default | meaning |
@@ -219,7 +244,7 @@ rather than assuming higher is better.
 
 ## When *not* to use this
 
-A plain `mysqldump | mysql` restore is still the better choice when:
+A plain `mysqldump | mysql` pipe-restore is still the better choice when:
 
 - **Most of the data changes every time.** This tool's cost is roughly
   `read + compare every existing row` plus `write only what changed`. A

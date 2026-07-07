@@ -35,8 +35,8 @@ use dumpfile::ParsedDump;
 #[derive(Parser, Debug)]
 #[command(name = "mysync")]
 struct Args {
-    /// Path to a mysqldump .sql or .sql.gz file
-    dump_file: String,
+    /// Path to a mysqldump .sql or .sql.gz file; omit to read from stdin
+    dump_file: Option<String>,
 
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
@@ -100,8 +100,9 @@ fn main() -> mysql::Result<()> {
     let args = Args::parse();
 
     let t0 = Instant::now();
-    println!("Reading {} ...", args.dump_file);
-    let data = dumpfile::read_dump_bytes(&args.dump_file).expect("failed to read dump file");
+    let source = args.dump_file.as_deref().unwrap_or("<stdin>");
+    println!("Reading {} ...", source);
+    let data = dumpfile::read_dump_bytes(args.dump_file.as_deref()).expect("failed to read dump file");
     println!("  {:.1} MB decompressed in {:.1}s", data.len() as f64 / 1e6, t0.elapsed().as_secs_f64());
 
     let t0 = Instant::now();

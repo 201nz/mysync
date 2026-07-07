@@ -16,7 +16,7 @@ mod dumpfile;
 fn main() {
     let path = std::env::args().nth(1).expect("dump path");
     let t0 = Instant::now();
-    let buf = dumpfile::read_dump_bytes(&path).unwrap();
+    let buf = dumpfile::read_dump_bytes(Some(&path)).unwrap();
     println!("read: {:?}, {} bytes", t0.elapsed(), buf.len());
 
     let t0 = Instant::now();
