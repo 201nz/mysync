@@ -145,6 +145,18 @@ fn main() -> mysql::Result<()> {
         }
     }
 
+    let unsafe_tables = sync::find_unsafe_key_tables(&dump.schemas, &local_schemas, &plan);
+    if !unsafe_tables.is_empty() {
+        eprintln!("mysync: refusing to sync — unsafe primary/unique key situation:");
+        for problem in &unsafe_tables {
+            eprintln!("  - {problem}");
+        }
+        eprintln!(
+            "See the README's \"Known correctness edge cases\" section. No changes have been made."
+        );
+        std::process::exit(1);
+    }
+
     sync::execute_ddl(&mut ddl_conn, &dump.schemas, &plan, args.dry_run)?;
     drop(ddl_conn);
 

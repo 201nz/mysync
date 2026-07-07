@@ -108,6 +108,65 @@ pub fn plan_ddl(
     plan
 }
 
+/// Finds tables where syncing by key would be unsafe: `key_columns()`
+/// picks *a* usable key, but doesn't guarantee it's the *only* real
+/// unique-ish constraint on the table — and `INSERT ... ON DUPLICATE KEY
+/// UPDATE` conflicts on any of them, not just the one mysync picked. A
+/// second real constraint (declared in the dump) or a constraint that's
+/// drifted out of sync between the dump and the local database (invisible
+/// to schema-change detection, which intentionally ignores index
+/// differences — see `TableSchema::signature`) can both make that upsert
+/// silently merge or duplicate rows instead of doing what was intended.
+///
+/// This only inspects already-parsed schema metadata (no data rows), so
+/// it costs nothing per-row and runs once before any DDL or writes —
+/// tables named here should cause the whole run to stop, not be silently
+/// skipped or slowed down for tables that don't have this shape.
+pub fn find_unsafe_key_tables(
+    dump_schemas: &HashMap<String, TableSchema>,
+    local_schemas: &HashMap<String, TableSchema>,
+    plan: &DdlPlan,
+) -> Vec<String> {
+    let freshly_created: HashSet<&str> = plan
+        .to_create
+        .iter()
+        .chain(&plan.to_rebuild)
+        .map(String::as_str)
+        .collect();
+
+    let mut problems = Vec::new();
+    for (name, schema) in dump_schemas {
+        if schema.key_columns().is_none() {
+            continue; // no usable key at all: falls back to unkeyed multiset diff, no upsert involved
+        }
+        match schema.effective_key() {
+            None => problems.push(format!(
+                "{name}: has more than one primary/unique key candidate — mysync can't tell \
+                 which one INSERT ... ON DUPLICATE KEY UPDATE will actually conflict on"
+            )),
+            Some(dump_key) => {
+                // Freshly created/rebuilt tables are loaded from the dump's
+                // exact CREATE TABLE text, so they're guaranteed to match it.
+                if freshly_created.contains(name.as_str()) {
+                    continue;
+                }
+                let local_matches = local_schemas
+                    .get(name)
+                    .and_then(|local| local.effective_key())
+                    .is_some_and(|local_key| local_key == dump_key);
+                if !local_matches {
+                    problems.push(format!(
+                        "{name}: primary/unique key differs between the dump and the local \
+                         database — the key mysync would sync by isn't actually enforced locally"
+                    ));
+                }
+            }
+        }
+    }
+    problems.sort();
+    problems
+}
+
 pub fn execute_ddl(
     conn: &mut Conn,
     dump_schemas: &HashMap<String, TableSchema>,
@@ -518,6 +577,78 @@ pub fn apply_table_plan<Q: Queryable>(
 mod tests {
     use super::*;
     use crate::dumpfile;
+
+    fn schema_map(schemas: Vec<TableSchema>) -> HashMap<String, TableSchema> {
+        schemas.into_iter().map(|s| (s.name.clone(), s)).collect()
+    }
+
+    #[test]
+    fn unsafe_key_check_passes_a_clean_single_key_table() {
+        let dump = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`id` int NOT NULL, PRIMARY KEY (`id`))",
+        )]);
+        let local = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`id` int NOT NULL, PRIMARY KEY (`id`))",
+        )]);
+        let plan = DdlPlan { unchanged: vec!["t".to_string()], ..Default::default() };
+        assert!(find_unsafe_key_tables(&dump, &local, &plan).is_empty());
+    }
+
+    #[test]
+    fn unsafe_key_check_flags_a_second_unique_key_in_the_dump() {
+        let dump = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`id` int NOT NULL, `a` int NOT NULL, \
+              PRIMARY KEY (`id`), UNIQUE KEY `uk_a` (`a`))",
+        )]);
+        // even if local matches the dump exactly, it's still ambiguous —
+        // both keys are real, either one can trigger ON DUPLICATE KEY UPDATE
+        let local = dump.clone();
+        let plan = DdlPlan { unchanged: vec!["t".to_string()], ..Default::default() };
+        let problems = find_unsafe_key_tables(&dump, &local, &plan);
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains('t'));
+        assert!(problems[0].contains("more than one"));
+    }
+
+    #[test]
+    fn unsafe_key_check_flags_drift_between_dump_and_local_key() {
+        // dump: unique key on `a`. local: same columns, but the real
+        // constraint is on `b` instead (schema-diff signature ignores this).
+        let dump = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`a` int NOT NULL, `b` int NOT NULL, UNIQUE KEY `uk_a` (`a`))",
+        )]);
+        let local = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`a` int NOT NULL, `b` int NOT NULL, UNIQUE KEY `uk_b` (`b`))",
+        )]);
+        let plan = DdlPlan { unchanged: vec!["t".to_string()], ..Default::default() };
+        let problems = find_unsafe_key_tables(&dump, &local, &plan);
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("differs between the dump and the local database"));
+    }
+
+    #[test]
+    fn unsafe_key_check_skips_drift_check_for_freshly_created_tables() {
+        // dump/local keys mismatch, but `t` is being created fresh from the
+        // dump's own CREATE TABLE text, so it's guaranteed to match once done.
+        let dump = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`a` int NOT NULL, UNIQUE KEY `uk_a` (`a`))",
+        )]);
+        let local = HashMap::new(); // table doesn't exist locally yet
+        let plan = DdlPlan { to_create: vec!["t".to_string()], ..Default::default() };
+        assert!(find_unsafe_key_tables(&dump, &local, &plan).is_empty());
+    }
+
+    #[test]
+    fn unsafe_key_check_ignores_tables_with_no_usable_key_at_all() {
+        // no PK, no unique key: falls back to unkeyed multiset diff, which
+        // never does an upsert, so ambiguity here doesn't matter.
+        let dump = schema_map(vec![crate::ddl::parse_create_table(
+            b"CREATE TABLE `t` (`a` int NOT NULL)",
+        )]);
+        let local = dump.clone();
+        let plan = DdlPlan { unchanged: vec!["t".to_string()], ..Default::default() };
+        assert!(find_unsafe_key_tables(&dump, &local, &plan).is_empty());
+    }
 
     #[test]
     fn explicit_column_list_fills_omitted_column_with_its_default() {
