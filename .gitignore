@@ -3,3 +3,6 @@
 # Editor/OS cruft
 .DS_Store
 *.swp
+
+# Claude Code crash debug log (local only, not part of project history)
+/CRASH.md
