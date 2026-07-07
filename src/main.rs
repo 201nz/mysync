@@ -96,19 +96,22 @@ fn main() -> mysql::Result<()> {
     let args = Args::parse();
 
     let t0 = Instant::now();
-    println!("Reading stdin ...");
     let data = dumpfile::read_dump_bytes().expect("failed to read dump");
-    println!("  {:.1} MB decompressed in {:.1}s", data.len() as f64 / 1e6, t0.elapsed().as_secs_f64());
+    if args.verbose {
+        println!("{:.1} MB decompressed in {:.1}s", data.len() as f64 / 1e6, t0.elapsed().as_secs_f64());
+    }
 
     let t0 = Instant::now();
     let dump = dumpfile::parse_dump(&data);
-    let total_inserts: usize = dump.inserts.values().map(|v| v.len()).sum();
-    println!(
-        "Parsed {} tables, {} INSERT statements in {:.1}s",
-        dump.schemas.len(),
-        total_inserts,
-        t0.elapsed().as_secs_f64()
-    );
+    if args.verbose {
+        let total_inserts: usize = dump.inserts.values().map(|v| v.len()).sum();
+        println!(
+            "Parsed {} tables, {} INSERT statements in {:.1}s",
+            dump.schemas.len(),
+            total_inserts,
+            t0.elapsed().as_secs_f64()
+        );
+    }
 
     let conn_params = db::ConnParams {
         host: args.host.clone(),
@@ -122,21 +125,23 @@ fn main() -> mysql::Result<()> {
     let local_schemas = db::fetch_local_tables(&mut ddl_conn, &conn_params.database)?;
 
     let plan = sync::plan_ddl(&dump.schemas, &dump.table_order, &local_schemas);
-    println!(
-        "Schema diff: {} to create, {} to drop, {} to rebuild, {} unchanged",
-        plan.to_create.len(),
-        plan.to_drop.len(),
-        plan.to_rebuild.len(),
-        plan.unchanged.len()
-    );
-    for t in &plan.to_create {
-        println!("  + create {t}");
-    }
-    for t in &plan.to_drop {
-        println!("  - drop   {t}");
-    }
-    for t in &plan.to_rebuild {
-        println!("  ~ rebuild {t} (schema changed)");
+    if args.verbose {
+        println!(
+            "Schema diff: {} to create, {} to drop, {} to rebuild, {} unchanged",
+            plan.to_create.len(),
+            plan.to_drop.len(),
+            plan.to_rebuild.len(),
+            plan.unchanged.len()
+        );
+        for t in &plan.to_create {
+            println!("  + create {t}");
+        }
+        for t in &plan.to_drop {
+            println!("  - drop   {t}");
+        }
+        for t in &plan.to_rebuild {
+            println!("  ~ rebuild {t} (schema changed)");
+        }
     }
 
     sync::execute_ddl(&mut ddl_conn, &dump.schemas, &plan, args.dry_run)?;
@@ -156,17 +161,15 @@ fn main() -> mysql::Result<()> {
         .collect();
 
     let n_jobs = args.jobs.max(1).min(tables_to_sync.len().max(1));
-    let mode = if args.per_table_transactions {
-        "one transaction per table"
-    } else {
-        "single shared transaction"
-    };
-    println!(
-        "Syncing {} tables across {} worker connection(s) [{}]...",
-        tables_to_sync.len(),
-        n_jobs,
-        mode
-    );
+    if args.verbose {
+        let mode = if args.per_table_transactions { "one transaction per table" } else { "single shared transaction" };
+        println!(
+            "Syncing {} tables across {} worker connection(s) [{}]...",
+            tables_to_sync.len(),
+            n_jobs,
+            mode
+        );
+    }
 
     let t0 = Instant::now();
     let (total_inserted, total_updated, total_deleted) = if args.per_table_transactions {
@@ -175,15 +178,17 @@ fn main() -> mysql::Result<()> {
         run_shared_transaction(&tables_to_sync, &dump, &new_tables, &conn_params, n_jobs, &args)?
     };
 
-    let elapsed = t0.elapsed().as_secs_f64();
-    println!(
-        "\n{} rows in {:.1}s: {} inserted, {} updated, {} deleted",
-        if args.dry_run { "Would sync" } else { "Synced" },
-        elapsed,
-        total_inserted,
-        total_updated,
-        total_deleted
-    );
+    if args.verbose {
+        let elapsed = t0.elapsed().as_secs_f64();
+        println!(
+            "{} rows in {:.1}s: {} inserted, {} updated, {} deleted",
+            if args.dry_run { "Would sync" } else { "Synced" },
+            elapsed,
+            total_inserted,
+            total_updated,
+            total_deleted
+        );
+    }
 
     Ok(())
 }
@@ -373,12 +378,15 @@ fn run_per_table_transactions(
 }
 
 fn print_progress(completed: usize, total: usize, table: &str, stats: &sync::TableStats, verbose: bool) {
+    if !verbose {
+        return;
+    }
     if stats.inserted > 0 || stats.updated > 0 || stats.deleted > 0 {
         println!(
             "  [{completed}/{total}] {table}: +{} ~{} -{}",
             stats.inserted, stats.updated, stats.deleted
         );
-    } else if verbose {
+    } else {
         println!("  [{completed}/{total}] {table}: unchanged");
     }
 }
