@@ -171,7 +171,7 @@ mysync myapp < production.sql.gz
 | `--tables-per-commit` | `0` (= one commit at the end) | commit every N tables instead of a single transaction for everything |
 | `--per-table-transactions` | off | trade the all-or-nothing guarantee for more write parallelism — see below |
 | `--dry-run` | off | report what would change without touching the database |
-| `-v, --verbose` | off | print progress, schema diff, per-table stats, and a final summary (silent otherwise) |
+| `-v, --verbose` | off | print progress, schema diff, per-table stats, a final summary, and total wall time (silent otherwise) |
 
 By default `mysync` prints nothing and exits 0 on success, so it composes
 cleanly in scripts/pipelines; pass `-v` to see what it's doing.

@@ -94,6 +94,7 @@ fn default_jobs() -> usize {
 
 fn main() -> mysql::Result<()> {
     let args = Args::parse();
+    let wall_t0 = Instant::now();
 
     let t0 = Instant::now();
     let data = dumpfile::read_dump_bytes().expect("failed to read dump");
@@ -188,6 +189,7 @@ fn main() -> mysql::Result<()> {
             total_updated,
             total_deleted
         );
+        println!("Total wall time: {:.1}s", wall_t0.elapsed().as_secs_f64());
     }
 
     Ok(())
