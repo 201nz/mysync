@@ -10,13 +10,7 @@ replacement for that last step that can be many times faster when most of
 the data hasn't changed since your last sync.
 
 ```
-mysync production.sql.gz -u root -D myapp
-```
-
-Or pipe directly from `mysqldump` without writing a file:
-
-```
-mysqldump -h prod -u root myapp | mysync -u root -D myapp
+mysqldump -h prod -u root myapp | mysync myapp
 ```
 
 ## Why this exists
@@ -148,26 +142,21 @@ copy it somewhere on your `PATH`.
 ## Usage
 
 ```
-mysync [dump_file] -D <database> [options]
+mysync <database> [options]
 ```
 
-`dump_file` is optional. If omitted, `mysync` reads from stdin — plain SQL
-or gzip-compressed, detected automatically by magic bytes. This lets you
-pipe directly from `mysqldump` or any other source without writing an
-intermediate file:
+`mysync` always reads the dump from stdin — plain SQL or gzip-compressed,
+detected automatically. Use a pipe or redirect to feed it:
 
 ```bash
-# file on disk (plain or .gz)
-mysync production.sql.gz -D myapp
-
-# pipe from a remote server
-ssh prod "mysqldump myapp" | mysync -D myapp
+# pipe directly from mysqldump
+mysqldump -h prod -u root myapp | mysync myapp
 
 # pipe with compression
-ssh prod "mysqldump myapp | gzip" | mysync -D myapp
+ssh prod "mysqldump myapp | gzip" | mysync myapp
 
-# redirect
-mysync -D myapp < production.sql.gz
+# redirect from a file
+mysync myapp < production.sql.gz
 ```
 
 | flag | default | meaning |
@@ -176,7 +165,7 @@ mysync -D myapp < production.sql.gz
 | `--port` | `3306` | port |
 | `-u, --user` | `root` | username |
 | `-p, --password` | *(empty, or `$MYSQL_PWD`)* | password |
-| `-D, --database` | *(required)* | database to sync |
+| `database` | *(required)* | database to sync (positional argument) |
 | `--batch-size` | `1000` | rows per `INSERT`/`DELETE` statement (auto-clamped down for very wide tables to stay under MySQL's 65535-placeholder limit) |
 | `-j, --jobs` | `min(cores, 8)` | worker threads/connections for the read-only diff step |
 | `--tables-per-commit` | `0` (= one commit at the end) | commit every N tables instead of a single transaction for everything |

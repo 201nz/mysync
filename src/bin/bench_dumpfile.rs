@@ -2,6 +2,7 @@
 // `#[path]` below, so the rest is expected to look unused from here.
 #![allow(dead_code)]
 
+use std::io::Read;
 use std::time::Instant;
 
 #[path = "../sqlstream.rs"]
@@ -16,7 +17,13 @@ mod dumpfile;
 fn main() {
     let path = std::env::args().nth(1).expect("dump path");
     let t0 = Instant::now();
-    let buf = dumpfile::read_dump_bytes(Some(&path)).unwrap();
+    let mut buf = Vec::new();
+    if path.ends_with(".gz") {
+        let f = std::fs::File::open(&path).unwrap();
+        flate2::read::GzDecoder::new(f).read_to_end(&mut buf).unwrap();
+    } else {
+        std::fs::File::open(&path).unwrap().read_to_end(&mut buf).unwrap();
+    }
     println!("read: {:?}, {} bytes", t0.elapsed(), buf.len());
 
     let t0 = Instant::now();

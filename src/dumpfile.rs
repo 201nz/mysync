@@ -12,25 +12,13 @@ use memchr::memchr;
 use crate::ddl::{parse_create_table, TableSchema};
 use crate::sqlstream;
 
-pub fn read_dump_bytes(path: Option<&str>) -> std::io::Result<Vec<u8>> {
+pub fn read_dump_bytes() -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new();
-    match path {
-        None => {
-            std::io::stdin().lock().read_to_end(&mut buf)?;
-            if buf.starts_with(&[0x1f, 0x8b]) {
-                let compressed = std::mem::take(&mut buf);
-                flate2::read::GzDecoder::new(std::io::Cursor::new(compressed))
-                    .read_to_end(&mut buf)?;
-            }
-        }
-        Some(path) => {
-            if path.ends_with(".gz") {
-                let f = std::fs::File::open(path)?;
-                flate2::read::GzDecoder::new(f).read_to_end(&mut buf)?;
-            } else {
-                std::fs::File::open(path)?.read_to_end(&mut buf)?;
-            }
-        }
+    std::io::stdin().lock().read_to_end(&mut buf)?;
+    if buf.starts_with(&[0x1f, 0x8b]) {
+        let compressed = std::mem::take(&mut buf);
+        flate2::read::GzDecoder::new(std::io::Cursor::new(compressed))
+            .read_to_end(&mut buf)?;
     }
     Ok(buf)
 }

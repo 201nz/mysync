@@ -35,8 +35,7 @@ use dumpfile::ParsedDump;
 #[derive(Parser, Debug)]
 #[command(name = "mysync")]
 struct Args {
-    /// Path to a mysqldump .sql or .sql.gz file; omit to read from stdin
-    dump_file: Option<String>,
+    database: String,
 
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
@@ -50,9 +49,6 @@ struct Args {
     /// Falls back to the MYSQL_PWD environment variable if not given.
     #[arg(short, long, env = "MYSQL_PWD", default_value = "", hide_env_values = true)]
     password: String,
-
-    #[arg(short = 'D', long)]
-    database: String,
 
     /// Rows per INSERT/DELETE statement
     #[arg(long, default_value_t = 1000)]
@@ -100,9 +96,8 @@ fn main() -> mysql::Result<()> {
     let args = Args::parse();
 
     let t0 = Instant::now();
-    let source = args.dump_file.as_deref().unwrap_or("<stdin>");
-    println!("Reading {} ...", source);
-    let data = dumpfile::read_dump_bytes(args.dump_file.as_deref()).expect("failed to read dump file");
+    println!("Reading stdin ...");
+    let data = dumpfile::read_dump_bytes().expect("failed to read dump");
     println!("  {:.1} MB decompressed in {:.1}s", data.len() as f64 / 1e6, t0.elapsed().as_secs_f64());
 
     let t0 = Instant::now();
