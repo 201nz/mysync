@@ -13,6 +13,13 @@ the data hasn't changed since your last sync.
 mysqldump -h prod -u root myapp | mysync myapp
 ```
 
+**Project maturity:** early (0.1.x). The core diff/sync path is
+well-exercised, but see [Known correctness edge
+cases](#known-correctness-edge-cases-pk-less-tables-multipledrifted-unique-keys)
+for cases involving PK-less tables or ambiguous/drifted unique keys before
+pointing this at data you can't afford to lose. `--dry-run` first is always
+a good idea.
+
 ## Contents
 
 - [Why this exists](#why-this-exists)

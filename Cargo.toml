@@ -3,6 +3,11 @@ name = "mysync"
 version = "0.1.0"
 edition = "2024"
 license = "0BSD"
+description = "Sync a local MySQL/MariaDB database to match a mysqldump file by touching only the tables and rows that changed"
+repository = "https://github.com/201nz/mysync"
+readme = "README.md"
+keywords = ["mysql", "mariadb", "mysqldump", "database-sync", "cli"]
+categories = ["command-line-utilities", "database"]
 
 [dependencies]
 # gzip-decompress dump files
