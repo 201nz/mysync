@@ -88,23 +88,6 @@ impl TableSchema {
         None
     }
 
-    /// Like `key_columns()`, but `None` unless that key is *provably the
-    /// only* unique-ish constraint on the table (primary key + unique
-    /// keys together count as at most one). `key_columns()` alone only
-    /// tells you which key mysync would use to diff/upsert rows; it says
-    /// nothing about whether some *other* real constraint on the table
-    /// could also trigger a `ON DUPLICATE KEY UPDATE` conflict. Used to
-    /// refuse (rather than silently mis-sync) tables where that's
-    /// ambiguous — see README's "Known correctness edge cases".
-    pub fn effective_key(&self) -> Option<&[String]> {
-        let has_pk = !self.primary_key.is_empty();
-        match (has_pk, self.unique_keys.len()) {
-            (true, 0) => Some(&self.primary_key),
-            (false, 1) => Some(&self.unique_keys[0]),
-            _ => None,
-        }
-    }
-
     /// Comparable signature of the parts of a schema that affect row
     /// identity/shape (column names+types+nullability in order, plus PK).
     /// Index/engine/charset differences are intentionally ignored.
@@ -397,38 +380,6 @@ mod tests {
         assert!(schema.primary_key.is_empty());
         // uk_a (a only, non-nullable) should win over uk_ab (b is nullable)
         assert_eq!(schema.key_columns(), Some(&["a".to_string()][..]));
-        // but there are TWO real unique keys on this table, so an
-        // ON DUPLICATE KEY UPDATE keyed on uk_a alone could still collide
-        // via uk_ab — not safe to treat uk_a as the only constraint.
-        assert_eq!(schema.effective_key(), None);
-    }
-
-    #[test]
-    fn effective_key_is_some_only_for_a_single_unambiguous_constraint() {
-        // PK only: safe.
-        let pk_only = parse_create_table(b"CREATE TABLE `t` (`id` int NOT NULL, PRIMARY KEY (`id`))");
-        assert_eq!(pk_only.effective_key(), Some(&["id".to_string()][..]));
-
-        // One unique key, no PK: safe.
-        let uk_only = parse_create_table(
-            b"CREATE TABLE `t` (`a` int NOT NULL, UNIQUE KEY `uk_a` (`a`)) ENGINE=InnoDB",
-        );
-        assert_eq!(uk_only.effective_key(), Some(&["a".to_string()][..]));
-
-        // PK *and* a separate unique key: ambiguous, even though
-        // key_columns() would happily pick the PK.
-        let pk_and_uk = parse_create_table(
-            b"CREATE TABLE `t` (`id` int NOT NULL, `a` int NOT NULL, \
-              PRIMARY KEY (`id`), UNIQUE KEY `uk_a` (`a`)) ENGINE=InnoDB",
-        );
-        assert_eq!(pk_and_uk.key_columns(), Some(&["id".to_string()][..]));
-        assert_eq!(pk_and_uk.effective_key(), None);
-
-        // No PK, no unique key at all: nothing to be ambiguous about,
-        // but also nothing usable (matches key_columns() == None).
-        let neither = parse_create_table(b"CREATE TABLE `t` (`a` int NOT NULL) ENGINE=InnoDB");
-        assert_eq!(neither.key_columns(), None);
-        assert_eq!(neither.effective_key(), None);
     }
 
     #[test]
