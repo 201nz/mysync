@@ -1,6 +1,6 @@
 [package]
 name = "mysync"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "0BSD"
 description = "Sync a local MySQL/MariaDB database to match a mysqldump file by touching only the tables and rows that changed"
